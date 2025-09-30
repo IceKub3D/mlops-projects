@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Data
+data/
+*.csv
+*.zip
+
+# Models
+models/
+*.pkl
+*.h5
+*.pt
+
+# Jupyter
+.ipynb_checkpoints/
