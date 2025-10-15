@@ -1,19 +1,22 @@
-# Use an official lightweight Python image
 FROM python:3.9-slim
 
-# Set working directory inside the container
 WORKDIR /app
+
+# Install system dependencies for xgboost and others
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements and install dependencies
 COPY requirements.txt .
-ENV PIP_DEFAULT_TIMEOUT=100
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --upgrade pip setuptools wheel \
+    && pip install --default-timeout=100 --retries 10 --no-cache-dir -r requirements.txt
 
-# Copy the entire project into the container
+# Copy the entire project
 COPY . .
 
-# Expose port 8000
+# Expose FastAPI port
 EXPOSE 8000
 
-# Start the FastAPI server
+# Start the app
 CMD ["uvicorn", "src.api:app", "--host", "0.0.0.0", "--port", "8000"]
