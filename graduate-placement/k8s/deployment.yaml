@@ -1,0 +1,23 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: graduate-placement-api
+  labels:
+    app: graduate-placement-api
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: graduate-placement-api
+  template:
+    metadata:
+      labels:
+        app: graduate-placement-api
+    spec:
+      containers:
+        - name: graduate-placement-api
+          image: graduate-placement:latest
+          imagePullPolicy: Never  # Because we're using a local image
+          ports:
+            - containerPort: 8000
+
