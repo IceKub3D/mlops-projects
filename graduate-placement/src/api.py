@@ -1,41 +1,47 @@
-# src/api.py
 from fastapi import FastAPI
-from pydantic import BaseModel
-import os
 import joblib
-import numpy as np
-import xgboost as xgb
+import os
 
-# Initialize FastAPI app
-app = FastAPI(
-    title="Graduate Placement Prediction API",
-    description="Predicts whether a graduate student will be placed based on their profile.",
-    version="1.0.0"
-)
+app = FastAPI()
 
-# Load trained model
-# Get absolute path to this file’s directory
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-MODEL_PATH = os.path.join(BASE_DIR, "models", "xgb_model.pkl")
+# Load environment variables from ConfigMap / Secret
+MODEL_PATH = os.getenv("MODEL_PATH", "/app/models/xgb_model.pkl")
+API_VERSION = os.getenv("API_VERSION", "v1")
+LOG_LEVEL = os.getenv("LOG_LEVEL", "info")
+SECRET_KEY = os.getenv("SECRET_KEY", "default_secret")
 
-model = joblib.load(MODEL_PATH)
+# Utility function to load model safely
+def load_model(path):
+    if not os.path.exists(path):
+        raise FileNotFoundError(f"Model file not found at path: {path}")
+    return joblib.load(path)
 
-# Define input schema
-class PlacementInput(BaseModel):
-    gpa: float
-    test_score: float
-    # Add all other numeric/categorical features your model expects in order
+# Load model at startup
+@app.on_event("startup")
+async def startup_event():
+    global model
+    model = load_model(MODEL_PATH)
+    print(f"Loaded model from: {MODEL_PATH}")
+    print(f"API version: {API_VERSION} | Log level: {LOG_LEVEL}")
 
 @app.get("/")
 def home():
     return {"message": "Graduate Placement Prediction API is running!"}
 
+@app.get("/health")
+def health():
+    return {"status": "healthy"}
+
 @app.post("/predict")
-def predict(data: PlacementInput):
-    # Convert input to numpy array
-    features = np.array([[data.gpa, data.test_score]])
-    # Make prediction
-    prediction = model.predict(features)
-    # If XGBoost returns a probability or integer
-    result = int(prediction[0])
-    return {"placement_prediction": result}
+def predict(features: dict):
+    """
+    Example prediction endpoint.
+    You should adjust 'features' to match your actual input structure.
+    """
+    try:
+        # Convert request dict to model input
+        input_data = list(features.values())
+        prediction = model.predict([input_data])
+        return {"prediction": prediction[0]}
+    except Exception as e:
+        return {"error": str(e)}
