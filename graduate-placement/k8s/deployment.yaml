@@ -2,6 +2,8 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: graduate-placement-api
+  labels:
+    app: graduate-placement-api
 spec:
   replicas: 2
   selector:
@@ -11,56 +13,42 @@ spec:
     metadata:
       labels:
         app: graduate-placement-api
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8000"
+        prometheus.io/path: "/metrics"
     spec:
       containers:
         - name: graduate-placement-api
           image: graduate-placement:latest
-          imagePullPolicy: Never  # Important for Minikube local images
+          imagePullPolicy: Never
           ports:
             - containerPort: 8000
-
           env:
-            # From ConfigMap
             - name: MODEL_PATH
-              valueFrom:
-                configMapKeyRef:
-                  name: graduate-placement-config
-                  key: MODEL_PATH
-
-            - name: API_VERSION
-              valueFrom:
-                configMapKeyRef:
-                  name: graduate-placement-config
-                  key: API_VERSION
-
-            - name: LOG_LEVEL
-              valueFrom:
-                configMapKeyRef:
-                  name: graduate-placement-config
-                  key: LOG_LEVEL
-
-            # From Secret
-            - name: SECRET_KEY
+              value: "/app/models/xgb_model.pkl"
+            - name: API_TOKEN
               valueFrom:
                 secretKeyRef:
                   name: graduate-placement-secret
-                  key: SECRET_KEY
-
-          # ---------- Optional: Add these later in step 7 ----------
-          # livenessProbe:
-          #   httpGet:
-          #     path: /health
-          #     port: 8000
-          #   initialDelaySeconds: 5
-          #   periodSeconds: 10
-          #
-          # readinessProbe:
-          #   httpGet:
-          #     path: /health
-          #     port: 8000
-          #   initialDelaySeconds: 5
-          #   periodSeconds: 10
-
+                  key: API_TOKEN
+            - name: APP_NAME
+              valueFrom:
+                configMapKeyRef:
+                  name: graduate-placement-config
+                  key: APP_NAME
+            - name: APP_ENV
+              valueFrom:
+                configMapKeyRef:
+                  name: graduate-placement-config
+                  key: APP_ENV
+          volumeMounts:
+            - name: model-volume
+              mountPath: /app/models/
+      volumes:
+        - name: model-volume
+          hostPath:
+            path: /app/models/
 ---
 apiVersion: v1
 kind: Service
@@ -73,4 +61,4 @@ spec:
   ports:
     - port: 8000
       targetPort: 8000
-      nodePort: 30587
+      nodePort: 30087

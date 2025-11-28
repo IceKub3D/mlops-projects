@@ -1,47 +1,100 @@
-from fastapi import FastAPI
-import joblib
+from fastapi import FastAPI, HTTPException, Depends, Header
+from pydantic import BaseModel
 import os
+import pickle
+import numpy as np
+from prometheus_client import Counter, Histogram
+from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
 
-app = FastAPI()
+# -----------------------------
+# Prometheus Metrics
+# -----------------------------
+REQUEST_COUNT = Counter(
+    "api_request_count",
+    "Total number of API requests",
+    ["endpoint", "method", "http_status"]
+)
 
-# Load environment variables from ConfigMap / Secret
-MODEL_PATH = os.getenv("MODEL_PATH", "/app/models/xgb_model.pkl")
-API_VERSION = os.getenv("API_VERSION", "v1")
-LOG_LEVEL = os.getenv("LOG_LEVEL", "info")
-SECRET_KEY = os.getenv("SECRET_KEY", "default_secret")
+REQUEST_LATENCY = Histogram(
+    "api_request_latency_seconds",
+    "Latency of API requests",
+    ["endpoint", "method"]
+)
 
-# Utility function to load model safely
-def load_model(path):
-    if not os.path.exists(path):
-        raise FileNotFoundError(f"Model file not found at path: {path}")
-    return joblib.load(path)
+# -----------------------------
+# FastAPI App
+# -----------------------------
+app = FastAPI(title="Graduate Placement Prediction API")
 
-# Load model at startup
-@app.on_event("startup")
-async def startup_event():
-    global model
-    model = load_model(MODEL_PATH)
-    print(f"Loaded model from: {MODEL_PATH}")
-    print(f"API version: {API_VERSION} | Log level: {LOG_LEVEL}")
+# -----------------------------
+# Load Model on Startup
+# -----------------------------
+MODEL_PATH = os.getenv("MODEL_PATH", "models/xgb_model.pkl")
 
+with open(MODEL_PATH, "rb") as f:
+    model = pickle.load(f)
+
+# -----------------------------
+# Schemas
+# -----------------------------
+class PlacementFeatures(BaseModel):
+    age: int
+    cgpa: float
+    gpa: float
+    test_score: float
+    internships: int
+    projects: int
+    soft_skills: int
+
+# -----------------------------
+# Security — API Token Check
+# -----------------------------
+API_TOKEN = os.getenv("API_TOKEN", "test-token-123")
+
+def verify_token(authorization: str = Header(...)):
+    scheme, _, token = authorization.partition(" ")
+    if scheme.lower() != "bearer" or token != API_TOKEN:
+        raise HTTPException(status_code=401, detail="Invalid or missing token.")
+    return True
+
+# -----------------------------
+# Root Endpoint
+# -----------------------------
 @app.get("/")
 def home():
+    REQUEST_COUNT.labels("/", "GET", 200).inc()
     return {"message": "Graduate Placement Prediction API is running!"}
 
-@app.get("/health")
-def health():
-    return {"status": "healthy"}
-
+# -----------------------------
+# Prediction Endpoint
+# -----------------------------
 @app.post("/predict")
-def predict(features: dict):
-    """
-    Example prediction endpoint.
-    You should adjust 'features' to match your actual input structure.
-    """
+def predict(features: PlacementFeatures, valid=Depends(verify_token)):
+
+    import time
+    start_time = time.time()
+
     try:
-        # Convert request dict to model input
-        input_data = list(features.values())
-        prediction = model.predict([input_data])
-        return {"prediction": prediction[0]}
+        data = np.array([[features.age, features.cgpa, features.gpa,
+                          features.test_score, features.internships,
+                          features.projects, features.soft_skills]])
+
+        prediction = model.predict(data)[0]
+        status = 200
+
+        return {"placement_prediction": int(prediction)}
+
     except Exception as e:
-        return {"error": str(e)}
+        status = 500
+        raise HTTPException(status_code=500, detail=str(e))
+
+    finally:
+        REQUEST_COUNT.labels("/predict", "POST", status).inc()
+        REQUEST_LATENCY.labels("/predict", "POST").observe(time.time() - start_time)
+
+# -----------------------------
+# Prometheus Metrics Endpoint
+# -----------------------------
+@app.get("/metrics")
+def metrics():
+    return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
